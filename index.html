@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>لینک‌باکس</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="app">
+    <!-- هدر -->
+    <header class="header">
+      <div class="header-right">
+        <div class="logo">
+          <span class="logo-icon">✦</span>
+          <span class="logo-text">لینک‌باکس</span>
+        </div>
+        <div class="top-menu-wrap">
+          <button id="top-menu-toggle" class="top-menu-toggle" aria-expanded="false" aria-controls="top-menu" title="منوی اصلی">☰ <span>منو</span></button>
+          <nav id="top-menu" class="top-menu hidden" aria-label="منوی اصلی">
+            <button id="add-link-btn" class="menu-action menu-primary"><span>＋</span> افزودن لینک</button>
+            <button id="add-category-btn" class="menu-action"><span>▤</span> دسته‌بندی جدید</button>
+            <button id="sync-settings-btn" class="menu-action" title="ورود مدیر"><span>☁</span> همگام‌سازی</button>
+            <button id="gallery-nav-btn" class="menu-action"><span>▧</span> گالری عکس</button>
+            <button id="analytics-nav-btn" class="menu-action hidden"><span>▥</span> آمار و مدیریت</button>
+            <span id="sync-status" class="sync-status" title="وضعیت همگام‌سازی"></span>
+          </nav>
+        </div>
+      </div>
+      <div class="header-center">
+        <div class="search-box">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          </svg>
+          <input type="text" id="search-input" placeholder="جستجو در لینک‌ها..." autocomplete="off" />
+          <button id="search-clear" class="search-clear hidden" title="پاک کردن">✕</button>
+        </div>
+      </div>
+      <div class="header-left">
+        <a href="/" class="logo-img-link" title="لینک‌باکس">
+          <img src="logoAli.png" alt="لوگو لینک‌باکس" class="logo-img" />
+        </a>
+        <div class="clock-date-wrap">
+          <div class="analog-clock" id="analog-clock" title="ساعت">
+            <div class="clock-face">
+              <div class="clock-mark" style="--i:0"></div>
+              <div class="clock-mark" style="--i:1"></div>
+              <div class="clock-mark" style="--i:2"></div>
+              <div class="clock-mark" style="--i:3"></div>
+              <div class="clock-mark" style="--i:4"></div>
+              <div class="clock-mark" style="--i:5"></div>
+              <div class="clock-mark" style="--i:6"></div>
+              <div class="clock-mark" style="--i:7"></div>
+              <div class="clock-mark" style="--i:8"></div>
+              <div class="clock-mark" style="--i:9"></div>
+              <div class="clock-mark" style="--i:10"></div>
+              <div class="clock-mark" style="--i:11"></div>
+              <div class="hand hour-hand" id="hour-hand"></div>
+              <div class="hand minute-hand" id="minute-hand"></div>
+              <div class="hand second-hand" id="second-hand"></div>
+              <div class="clock-center"></div>
+            </div>
+          </div>
+          <div class="jalali-date" id="jalali-date">
+            <span class="jalali-weekday" id="jalali-weekday">—</span>
+            <span class="jalali-full" id="jalali-full">—</span>
+          </div>
+        </div>
+        <button id="theme-toggle" class="theme-btn" title="تغییر تم (روشن / دارک / طوسی)">
+          <span class="theme-icon">🌙</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- نوار افقی دسته‌بندی‌ها (۳ بعدی) -->
+    <div class="categories-bar-wrap">
+      <div class="categories-bar" id="category-list"></div>
+    </div>
+
+    <!-- لیست لینک‌ها -->
+    <section class="content">
+      <div class="content-header">
+        <h2 id="current-category-title">همه لینک‌ها</h2>
+        <span id="link-count" class="badge">0</span>
+      </div>
+      <div id="links-container" class="links-grid"></div>
+      <div id="empty-state" class="empty-state hidden">
+        <div class="empty-icon">📦</div>
+        <p class="empty-title">هنوز لینکی نیست</p>
+        <p class="empty-desc">روی «افزودن لینک» کلیک کنید و اولین لینک را بسازید</p>
+      </div>
+      <div id="no-results" class="empty-state hidden">
+        <div class="empty-icon">🔍</div>
+        <p class="empty-title">نتیجه‌ای پیدا نشد</p>
+        <p class="empty-desc">عبارت جستجو را تغییر دهید</p>
+      </div>
+    </section>
+
+    <section id="gallery-page" class="gallery-page hidden">
+      <div class="gallery-heading">
+        <div><p class="gallery-kicker">INSPIRATION GALLERY</p><h2>گالری عکس</h2><p>مجموعه شخصی تصاویر شما؛ فایل‌ها از پوشه gallery خوانده می‌شوند</p></div>
+        <div class="gallery-actions"><button id="gallery-upload-btn" class="btn btn-primary hidden" type="button">＋ بارگذاری عکس</button><input id="gallery-upload-input" type="file" accept="image/*" multiple hidden><button id="gallery-refresh" class="btn btn-primary" type="button">⟳ تازه‌سازی</button></div>
+      </div>
+      <form id="gallery-search-form" class="gallery-search"><input id="gallery-search-input" type="search" placeholder="جستجو بر اساس نام یا برچسب تصویر..." aria-label="جستجو در گالری"><button class="btn btn-primary" type="submit">جستجو</button></form>
+      <div id="gallery-status" class="gallery-status" aria-live="polite">در حال دریافت تصاویر...</div>
+      <div id="gallery-grid" class="gallery-grid"></div>
+    </section>
+  </div>
+
+  <!-- مودال افزودن/ویرایش لینک -->
+  <div id="link-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="link-modal-title">افزودن لینک جدید</h3>
+        <button class="modal-close" data-close="link-modal">✕</button>
+      </div>
+      <form id="link-form" class="modal-body">
+        <input type="hidden" id="link-id" />
+        <input type="hidden" id="link-image-data" />
+
+        <!-- پیش‌نمایش و انتخاب عکس -->
+        <div class="image-preview-area">
+          <div id="image-preview" class="image-preview">
+            <span class="preview-placeholder">📷</span>
+          </div>
+          <div class="image-inputs">
+            <div class="form-group">
+              <label>عکس لینک</label>
+              <div class="image-source-tabs">
+                <button type="button" class="img-tab active" data-tab="url">از اینترنت</button>
+                <button type="button" class="img-tab" data-tab="file">از هارد</button>
+              </div>
+            </div>
+            <div id="img-url-panel" class="img-panel">
+              <input type="url" id="link-image" placeholder="https://example.com/image.jpg" />
+              <p class="hint">خالی = فاویکون خودکار سایت (برای آفلاین ذخیره می‌شود)</p>
+            </div>
+            <div id="img-file-panel" class="img-panel hidden">
+              <label class="file-drop" for="link-image-file">
+                <input type="file" id="link-image-file" accept="image/*" hidden />
+                <span class="file-drop-text">کلیک یا فایل را بکشید</span>
+                <span class="file-drop-hint">PNG, JPG, WebP — حداکثر ۲ مگابایت</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="link-title">عنوان</label>
+          <input type="text" id="link-title" placeholder="مثلاً گوگل" required />
+        </div>
+        <div class="form-group">
+          <label for="link-url">آدرس لینک</label>
+          <input type="url" id="link-url" placeholder="https://example.com" required />
+        </div>
+        <div class="form-group">
+          <label for="link-category">دسته‌بندی</label>
+          <select id="link-category" required></select>
+        </div>
+        <div class="form-group">
+          <label for="link-desc">توضیحات (اختیاری)</label>
+          <textarea id="link-desc" rows="2" placeholder="توضیح کوتاه..."></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="link-modal">انصراف</button>
+          <button type="submit" class="btn btn-primary">ذخیره</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- مودال افزودن دسته‌بندی -->
+  <div id="category-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h3>افزودن دسته‌بندی</h3>
+        <button class="modal-close" data-close="category-modal">✕</button>
+      </div>
+      <form id="category-form" class="modal-body">
+        <div class="form-group">
+          <label for="category-name">نام دسته‌بندی</label>
+          <input type="text" id="category-name" placeholder="مثلاً کار، سرگرمی، آموزش" required />
+        </div>
+        <div class="form-group">
+          <label>رنگ</label>
+          <div class="color-picker" id="color-picker">
+            <button type="button" class="color-swatch active" data-color="#4f6ef7" style="background:#4f6ef7"></button>
+            <button type="button" class="color-swatch" data-color="#e74c3c" style="background:#e74c3c"></button>
+            <button type="button" class="color-swatch" data-color="#27ae60" style="background:#27ae60"></button>
+            <button type="button" class="color-swatch" data-color="#f39c12" style="background:#f39c12"></button>
+            <button type="button" class="color-swatch" data-color="#9b59b6" style="background:#9b59b6"></button>
+            <button type="button" class="color-swatch" data-color="#1abc9c" style="background:#1abc9c"></button>
+            <button type="button" class="color-swatch" data-color="#e91e63" style="background:#e91e63"></button>
+            <button type="button" class="color-swatch" data-color="#607d8b" style="background:#607d8b"></button>
+          </div>
+          <input type="hidden" id="category-color" value="#4f6ef7" />
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="category-modal">انصراف</button>
+          <button type="submit" class="btn btn-primary">افزودن</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- مودال تأیید حذف -->
+  <div id="confirm-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h3>تأیید حذف</h3>
+        <button class="modal-close" data-close="confirm-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-message">آیا مطمئن هستید؟</p>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="confirm-modal">انصراف</button>
+          <button type="button" id="confirm-delete-btn" class="btn btn-danger">حذف</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- داشبورد آمار و مدیریت مدیر -->
+  <div id="analytics-modal" class="modal hidden">
+    <div class="modal-overlay" data-close="analytics-modal"></div>
+    <div class="modal-content analytics-modal-content">
+      <div class="modal-header"><h3>آمار و مدیریت لینک‌باکس</h3><button class="modal-close" data-close="analytics-modal">✕</button></div>
+      <div class="analytics-toolbar">
+        <label for="analytics-range">بازه گزارش</label>
+        <select id="analytics-range"><option value="1">امروز</option><option value="7">۷ روز گذشته</option><option value="30" selected>۳۰ روز گذشته</option><option value="90">۹۰ روز گذشته</option></select>
+        <button id="analytics-refresh" class="btn btn-primary" type="button">به‌روزرسانی</button>
+        <button id="backup-download" class="btn btn-secondary" type="button">دانلود پشتیبان</button>
+      </div>
+      <div id="analytics-status" class="analytics-status" aria-live="polite">در حال دریافت آمار...</div>
+      <div class="analytics-stats" id="analytics-stats"></div>
+      <div class="analytics-columns">
+        <section class="analytics-panel"><h4>پربازدیدترین لینک‌ها</h4><div id="popular-links"></div></section>
+        <section class="analytics-panel"><h4>فعالیت‌های اخیر مدیر</h4><div id="audit-list"></div></section>
+      </div>
+      <div class="analytics-footer"><span>نسخه پشتیبان ابری پس از ذخیره موفق تغییرات ساخته می‌شود.</span><button id="backup-now" class="btn btn-secondary" type="button">ایجاد پشتیبان ابری همین حالا</button></div>
+    </div>
+  </div>
+
+  <!-- ورود امن مدیر -->
+  <div id="sync-modal" class="modal hidden">
+    <div class="modal-overlay" data-close="sync-modal"></div>
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h3>ورود مدیر لینک‌باکس</h3>
+        <button class="modal-close" data-close="sync-modal">✕</button>
+      </div>
+      <form id="admin-login-form" class="modal-body">
+        <p class="sync-intro">برای مدیریت لینک‌ها، با حساب مدیر وارد شوید.</p>
+        <div class="form-group"><label for="admin-email">ایمیل مدیر</label><input type="email" id="admin-email" autocomplete="username" required dir="ltr" /></div>
+        <div class="form-group"><label for="admin-password">رمز عبور</label><input type="password" id="admin-password" autocomplete="current-password" required dir="ltr" /></div>
+        <div id="sync-message" class="sync-message hidden"></div>
+        <div class="modal-footer"><button type="button" id="admin-logout-btn" class="btn btn-secondary hidden">خروج مدیر</button><button type="submit" class="btn btn-primary">ورود</button></div>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

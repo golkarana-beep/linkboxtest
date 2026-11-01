@@ -1,0 +1,1283 @@
+// ========== مدیریت داده‌ها (LocalStorage + ابر) ==========
+const STORAGE_KEY = "link-manager-data-v3";
+const SYNC_CONFIG_KEY = "link-manager-sync-config";
+const LOCAL_THEME_KEY = "linkbox-local-theme-v1";
+const PERSONAL_CATEGORY_ID = "personal";
+const GUEST_LINKS_KEY = "linkbox-guest-personal-links-v1";
+const ACTIVE_CATEGORY_KEY = "linkbox-active-category-v1";
+function loadActiveCategory() { try { return localStorage.getItem(ACTIVE_CATEGORY_KEY) || null; } catch { return null; } }
+function saveActiveCategory(id) { try { localStorage.setItem(ACTIVE_CATEGORY_KEY, id); } catch {} }
+function loadGuestLinks() { try { const value = JSON.parse(localStorage.getItem(GUEST_LINKS_KEY) || "[]"); return Array.isArray(value) ? value : []; } catch { return []; } }
+let guestLinks = loadGuestLinks();
+function saveGuestLinks() { try { localStorage.setItem(GUEST_LINKS_KEY, JSON.stringify(guestLinks)); } catch { alert("حافظه مرورگر پر شده است؛ بعضی لینک‌ها ذخیره نشدند."); } }
+function ensurePersonalCategory() { if (!state.categories.some(c => c.id === PERSONAL_CATEGORY_ID)) state.categories.push({ id: PERSONAL_CATEGORY_ID, name: "شخصی", isSystem: true, color: "#9b59b6" }); }
+const SUPABASE_URL = window.LINKBOX_CONFIG?.supabaseUrl || "";
+const SUPABASE_ANON_KEY = window.LINKBOX_CONFIG?.supabaseAnonKey || "";
+const supabaseClient = (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY && !SUPABASE_URL.includes("YOUR_PROJECT")) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+let adminSession = null;
+let cloudSaveTimer = null;
+const VISITOR_KEY = "linkbox-visitor-id-v1";
+let dragSourceCategoryId = null;
+let dragSourceLinkId = null;
+function getVisitorId() {
+  try { let id = localStorage.getItem(VISITOR_KEY); if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : "v-" + Date.now() + "-" + Math.random().toString(36).slice(2)); localStorage.setItem(VISITOR_KEY, id); } return id; }
+  catch { return "session-" + Math.random().toString(36).slice(2); }
+}
+const visitorId = getVisitorId();
+let pageViewTracked = false;
+
+const defaultData = {
+  categories: [
+    { id: "all", name: "همه لینک‌ها", isSystem: true, color: "#4f6ef7" },
+    { id: "cat-1", name: "کار", isSystem: false, color: "#4f6ef7" },
+    { id: "cat-2", name: "سرگرمی", isSystem: false, color: "#e74c3c" },
+    { id: "cat-3", name: "آموزش", isSystem: false, color: "#27ae60" },
+  ],
+  links: [],
+  theme: "light",
+  activeCategory: "all",
+  updatedAt: 0,
+};
+
+function loadData() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return structuredClone(defaultData);
+    const parsed = JSON.parse(raw);
+    if (!parsed.categories.some((c) => c.id === "all")) {
+      parsed.categories.unshift({ id: "all", name: "همه لینک‌ها", isSystem: true, color: "#4f6ef7" });
+    }
+    parsed.categories.forEach((c) => { if (!c.color) c.color = "#4f6ef7"; });
+    return { ...defaultData, ...parsed };
+  } catch {
+    return structuredClone(defaultData);
+  }
+}
+
+function loadSyncConfig() {
+  try {
+    const raw = localStorage.getItem(SYNC_CONFIG_KEY);
+    if (!raw) return { enabled: false, apiKey: "", binId: "" };
+    return JSON.parse(raw);
+  } catch {
+    return { enabled: false, apiKey: "", binId: "" };
+  }
+}
+
+function saveSyncConfig(cfg) {
+  localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(cfg));
+}
+
+let syncConfig = loadSyncConfig();
+let syncTimer = null;
+let isSyncing = false;
+let localCloudDirty = false;
+
+function saveData(data, options = {}) {
+  data.updatedAt = Date.now();
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (e) {
+    if (e.name === "QuotaExceededError") {
+      alert("حافظه مرورگر پر شد. لطفاً چند لینک یا عکس را حذف کنید.");
+    }
+  }
+  // تغییرات مدیر تا تأیید موفق سرور «در انتظار ذخیره» می‌مانند تا pull دوره‌ای آن‌ها را بازنویسی نکند.
+  if (!options.skipCloud && adminSession && supabaseClient) {
+    localCloudDirty = true;
+    clearTimeout(cloudSaveTimer);
+    cloudSaveTimer = setTimeout(() => pushToCloud(false), 900);
+  }
+}
+
+let state = loadData();
+const rememberedCategory = loadActiveCategory();
+if (rememberedCategory) state.activeCategory = rememberedCategory;
+ensurePersonalCategory();
+let searchQuery = "";
+let pendingImageData = null;
+
+// ========== المان‌ها ==========
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+const categoryList = $("#category-list");
+const linksContainer = $("#links-container");
+const emptyState = $("#empty-state");
+const noResults = $("#no-results");
+const currentCategoryTitle = $("#current-category-title");
+const linkCount = $("#link-count");
+const themeToggle = $("#theme-toggle");
+const themeIcon = themeToggle.querySelector(".theme-icon");
+const searchInput = $("#search-input");
+const searchClear = $("#search-clear");
+
+const linkForm = $("#link-form");
+const linkModalTitle = $("#link-modal-title");
+const linkIdInput = $("#link-id");
+const linkTitleInput = $("#link-title");
+const linkUrlInput = $("#link-url");
+const linkCategorySelect = $("#link-category");
+const linkDescInput = $("#link-desc");
+const linkImageInput = $("#link-image");
+const linkImageDataInput = $("#link-image-data");
+const linkImageFile = $("#link-image-file");
+const imagePreview = $("#image-preview");
+
+const categoryForm = $("#category-form");
+const categoryNameInput = $("#category-name");
+const categoryColorInput = $("#category-color");
+
+const confirmMessage = $("#confirm-message");
+const confirmDeleteBtn = $("#confirm-delete-btn");
+
+let pendingDelete = null;
+
+// ========== تم (روشن → دارک → طوسی) ==========
+const THEMES = ["light", "dark", "slate"];
+const THEME_ICONS = { light: "🌙", dark: "☀️", slate: "🩶" };
+
+function getSavedLocalTheme() {
+  try {
+    const saved = localStorage.getItem(LOCAL_THEME_KEY);
+    return THEMES.includes(saved) ? saved : null;
+  } catch { return null; }
+}
+
+function applyTheme(theme) {
+  if (!THEMES.includes(theme)) theme = "light";
+  document.documentElement.setAttribute("data-theme", theme);
+  themeIcon.textContent = THEME_ICONS[theme] || "🌙";
+  state.theme = theme;
+  // Theme is a device-only preference; never sync it to the shared cloud record.
+  try { localStorage.setItem(LOCAL_THEME_KEY, theme); } catch (e) { console.warn("Could not save local theme", e); }
+  saveData(state, { skipCloud: true });
+}
+
+function toggleTheme() {
+  const idx = THEMES.indexOf(state.theme);
+  const next = THEMES[(idx + 1) % THEMES.length];
+  applyTheme(next);
+}
+
+// ========== ساعت عقربه‌ای ==========
+function updateClock() {
+  const now = new Date();
+  const h = now.getHours() % 12;
+  const m = now.getMinutes();
+  const s = now.getSeconds();
+  const hourDeg = h * 30 + m * 0.5;
+  const minDeg = m * 6 + s * 0.1;
+  const secDeg = s * 6;
+  const hourHand = document.getElementById("hour-hand");
+  const minuteHand = document.getElementById("minute-hand");
+  const secondHand = document.getElementById("second-hand");
+  if (hourHand) hourHand.style.transform = `rotate(${hourDeg}deg)`;
+  if (minuteHand) minuteHand.style.transform = `rotate(${minDeg}deg)`;
+  if (secondHand) secondHand.style.transform = `rotate(${secDeg}deg)`;
+}
+
+// ========== تاریخ شمسی (جلالی) ==========
+const JALALI_WEEKDAYS = ["یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه"];
+const JALALI_MONTHS = [
+  "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+  "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"
+];
+
+function gregorianToJalali(gy, gm, gd) {
+  const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+  let jy = gy <= 1600 ? 0 : 979;
+  gy -= gy <= 1600 ? 621 : 1600;
+  const gy2 = gm > 2 ? gy + 1 : gy;
+  let days =
+    365 * gy +
+    Math.floor((gy2 + 3) / 4) -
+    Math.floor((gy2 + 99) / 100) +
+    Math.floor((gy2 + 399) / 400) -
+    80 +
+    gd +
+    g_d_m[gm - 1];
+  jy += 33 * Math.floor(days / 12053);
+  days %= 12053;
+  jy += 4 * Math.floor(days / 1461);
+  days %= 1461;
+  if (days > 365) {
+    jy += Math.floor((days - 1) / 365);
+    days = (days - 1) % 365;
+  }
+  const jm = days < 186 ? 1 + Math.floor(days / 31) : 7 + Math.floor((days - 186) / 30);
+  const jd = 1 + (days < 186 ? days % 31 : (days - 186) % 30);
+  return { jy, jm, jd };
+}
+
+function updateJalaliDate() {
+  const now = new Date();
+  const { jy, jm, jd } = gregorianToJalali(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  const weekday = JALALI_WEEKDAYS[now.getDay()];
+  const weekdayEl = document.getElementById("jalali-weekday");
+  const fullEl = document.getElementById("jalali-full");
+  if (weekdayEl) weekdayEl.textContent = weekday;
+  if (fullEl) fullEl.textContent = `${jd} ${JALALI_MONTHS[jm - 1]} ${jy}`;
+}
+
+// ========== کش تصویر برای آفلاین ==========
+/** تبدیل URL تصویر به base64 و ذخیره در لینک */
+async function cacheImageAsBase64(url) {
+  if (!url || url.startsWith("data:")) return url;
+  try {
+    const res = await fetch(url, { mode: "cors" });
+    if (!res.ok) throw new Error("fetch failed");
+    const blob = await res.blob();
+    // فقط تصاویر کوچک‌تر از ~500KB
+    if (blob.size > 500 * 1024) return null;
+    return await blobToBase64(blob);
+  } catch {
+    // fallback: canvas برای فاویکون‌ها (ممکن است CORS بزند)
+    return null;
+  }
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function getFaviconUrl(url) {
+  try {
+    const domain = new URL(url).hostname;
+    return `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+  } catch {
+    return null;
+  }
+}
+
+/** منبع نهایی نمایش تصویر (اولویت: cached > image > favicon) */
+function getDisplayImage(link) {
+  if (link.imageCached) return link.imageCached;
+  if (link.image) return link.image;
+  return getFaviconUrl(link.url);
+}
+
+/** وقتی آنلاین هستیم، فاویکون/عکس را کش کن */
+async function ensureImageCached(link) {
+  if (link.imageCached) return link;
+  if (!navigator.onLine) return link;
+
+  let src = link.image || getFaviconUrl(link.url);
+  if (!src || src.startsWith("data:")) {
+    if (src && src.startsWith("data:")) {
+      link.imageCached = src;
+    }
+    return link;
+  }
+
+  const cached = await cacheImageAsBase64(src);
+  if (cached) {
+    link.imageCached = cached;
+    // ذخیره در state
+    const idx = state.links.findIndex((l) => l.id === link.id);
+    if (idx !== -1) {
+      state.links[idx].imageCached = cached;
+      saveData(state);
+    }
+  }
+  return link;
+}
+
+// ========== رندر دسته‌بندی‌ها (نوار افقی ۳ بعدی) ==========
+function renderCategories() {
+  categoryList.innerHTML = "";
+
+  state.categories.forEach((cat) => {
+    const count =
+      cat.id === "all"
+        ? state.links.length
+        : cat.id === PERSONAL_CATEGORY_ID
+          ? guestLinks.length
+          : state.links.filter((l) => l.categoryId === cat.id).length;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `cat-chip${state.activeCategory === cat.id ? " active" : ""}`;
+    btn.style.background = `linear-gradient(145deg, ${lighten(cat.color, 12)}, ${cat.color})`;
+    btn.dataset.id = cat.id;
+    if (adminSession && cat.id !== "all" && cat.id !== PERSONAL_CATEGORY_ID) {
+      btn.draggable = true; btn.classList.add("sortable-category");
+      btn.addEventListener("dragstart", (e) => { dragSourceCategoryId = cat.id; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", cat.id); btn.classList.add("dragging"); });
+      btn.addEventListener("dragend", () => { dragSourceCategoryId = null; btn.classList.remove("dragging"); $$(".cat-chip").forEach(x=>x.classList.remove("drag-over")); });
+      btn.addEventListener("dragover", (e) => { if (dragSourceCategoryId && dragSourceCategoryId !== cat.id) { e.preventDefault(); btn.classList.add("drag-over"); } });
+      btn.addEventListener("dragleave", () => btn.classList.remove("drag-over"));
+      btn.addEventListener("drop", (e) => { e.preventDefault(); btn.classList.remove("drag-over"); if (!dragSourceCategoryId || dragSourceCategoryId === cat.id) return; reorderCategories(dragSourceCategoryId, cat.id); });
+    }
+
+    btn.innerHTML = `
+      <span>${escapeHtml(cat.name)}</span>
+      <span class="cat-count">${count}</span>
+      ${
+        (!cat.isSystem && cat.id !== PERSONAL_CATEGORY_ID)
+          ? `<span class="cat-delete" data-action="delete-cat" title="حذف دسته‌بندی">✕</span>`
+          : ""
+      }
+    `;
+
+    btn.addEventListener("click", (e) => {
+      if (e.target.closest("[data-action]")) return;
+      state.activeCategory = cat.id;
+      saveActiveCategory(cat.id);
+      saveData(state);
+      renderCategories();
+      renderLinks();
+    });
+
+    const del = btn.querySelector('[data-action="delete-cat"]');
+    if (del) {
+      del.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openConfirm(`آیا می‌خواهید دسته‌بندی «${cat.name}» را حذف کنید؟`, {
+          type: "category",
+          id: cat.id,
+        });
+      });
+    }
+
+    categoryList.appendChild(btn);
+  });
+}
+
+function lighten(hex, percent) {
+  try {
+    const num = parseInt(hex.replace("#", ""), 16);
+    const r = Math.min(255, (num >> 16) + Math.round(2.55 * percent));
+    const g = Math.min(255, ((num >> 8) & 0xff) + Math.round(2.55 * percent));
+    const b = Math.min(255, (num & 0xff) + Math.round(2.55 * percent));
+    return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+  } catch {
+    return hex;
+  }
+}
+
+// ========== فیلتر ==========
+function getFilteredLinks() {
+  let links =
+    state.activeCategory === PERSONAL_CATEGORY_ID
+      ? [...guestLinks]
+      : state.activeCategory === "all"
+        ? [...state.links]
+        : state.links.filter((l) => l.categoryId === state.activeCategory);
+
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    links = links.filter(
+      (l) =>
+        l.title.toLowerCase().includes(q) ||
+        l.url.toLowerCase().includes(q) ||
+        (l.desc && l.desc.toLowerCase().includes(q))
+    );
+  }
+  return links;
+}
+
+// ========== رندر لینک‌ها ==========
+function renderLinks() {
+  const links = getFilteredLinks();
+  const activeCat = state.categories.find((c) => c.id === state.activeCategory);
+
+  currentCategoryTitle.textContent = activeCat ? activeCat.name : "همه لینک‌ها";
+  linkCount.textContent = links.length;
+
+  linksContainer.innerHTML = "";
+  emptyState.classList.add("hidden");
+  noResults.classList.add("hidden");
+
+  if (links.length === 0) {
+    if (searchQuery) noResults.classList.remove("hidden");
+    else emptyState.classList.remove("hidden");
+    return;
+  }
+
+  links.forEach((link) => {
+    const cat = state.categories.find((c) => c.id === link.categoryId);
+    const imgSrc = getDisplayImage(link);
+    // عکس سفارشی (آپلود یا URL) به‌صورت cover؛ فاویکون به‌صورت آیکون وسط
+    const isCustomImage = !!(link.image || (link.imageCached && link.image));
+    const useCover = isCustomImage && imgSrc && !imgSrc.includes("favicons");
+
+    const card = document.createElement("div");
+    card.className = "link-card";
+    if (adminSession && state.activeCategory !== "all" && state.activeCategory !== PERSONAL_CATEGORY_ID && !searchQuery) {
+      card.draggable = true; card.classList.add("sortable-link");
+      card.addEventListener("dragstart", (e) => { dragSourceLinkId = link.id; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", link.id); card.classList.add("dragging"); });
+      card.addEventListener("dragend", () => { dragSourceLinkId = null; card.classList.remove("dragging"); $$(".link-card").forEach(x=>x.classList.remove("drag-over")); });
+      card.addEventListener("dragover", (e) => { if (dragSourceLinkId && dragSourceLinkId !== link.id) { e.preventDefault(); card.classList.add("drag-over"); } });
+      card.addEventListener("dragleave", () => card.classList.remove("drag-over"));
+      card.addEventListener("drop", (e) => { e.preventDefault(); card.classList.remove("drag-over"); if (dragSourceLinkId && dragSourceLinkId !== link.id) reorderLinks(dragSourceLinkId, link.id); });
+    }
+    card.setAttribute("role", "link");
+    card.setAttribute("tabindex", "0");
+    card.setAttribute("aria-label", `باز کردن ${link.title}`);
+    const openLink = () => { trackEvent("link_click", link); window.open(link.url, "_blank", "noopener,noreferrer"); };
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("button, a")) return;
+      openLink();
+    });
+    card.addEventListener("keydown", (event) => {
+      if ((event.key === "Enter" || event.key === " ") && !event.target.closest("button, a")) {
+        event.preventDefault(); openLink();
+      }
+    });
+
+    const iconHtml = imgSrc
+      ? `<img src="${escapeAttr(imgSrc)}" alt="" class="link-card-icon${useCover ? " cover" : ""}" loading="lazy"
+            onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+         <span class="link-card-icon-fallback" style="display:none">✦</span>`
+      : `<span class="link-card-icon-fallback">✦</span>`;
+
+    card.innerHTML = `
+      <div class="link-card-icon-area">${iconHtml}</div>
+      <div class="link-card-actions" aria-label="عملیات لینک">
+        ${adminSession ? `<button class="btn-icon favorite-btn${link.favorite ? " is-favorite" : ""}" data-action="favorite" title="${link.favorite ? "حذف از منتخب‌ها" : "افزودن به منتخب‌ها"}" aria-label="علاقه‌مندی">${link.favorite ? "★" : "☆"}</button>` : ""}
+        <button class="btn-icon" data-action="edit" title="ویرایش" aria-label="ویرایش لینک">✏️</button>
+        <button class="btn-icon danger" data-action="delete" title="حذف" aria-label="حذف لینک">🗑️</button>
+      </div>
+      <div class="link-card-title">${escapeHtml(link.title)}</div>
+    `;
+
+    card.dataset.url = link.url;
+    const favoriteBtn = card.querySelector('[data-action="favorite"]');
+    if (favoriteBtn) favoriteBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); link.favorite = !link.favorite; saveData(state); logAudit(link.favorite ? "favorite_add" : "favorite_remove", link.title); renderLinks(); });
+    card.querySelector('[data-action="edit"]').dataset.linkId = link.id;
+    card.querySelector('[data-action="delete"]').dataset.linkId = link.id;
+    card.querySelector('[data-action="edit"]').addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openLinkModal(link);
+    });
+    card.querySelector('[data-action="delete"]').addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openConfirm(`آیا می‌خواهید لینک «${link.title}» را حذف کنید؟`, {
+        type: "link",
+        id: link.id,
+      });
+    });
+
+    linksContainer.appendChild(card);
+
+    if (!link.imageCached && navigator.onLine) {
+      ensureImageCached(link);
+    }
+  });
+}
+
+function getDomain(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+// ========== مودال لینک ==========
+function populateCategorySelect(selectedId = null) {
+  linkCategorySelect.innerHTML = "";
+  const cats = adminSession ? state.categories.filter((c) => !c.isSystem && c.id !== PERSONAL_CATEGORY_ID) : state.categories.filter((c) => c.id === PERSONAL_CATEGORY_ID);
+  if (cats.length === 0) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "ابتدا یک دسته‌بندی بسازید";
+    opt.disabled = true;
+    opt.selected = true;
+    linkCategorySelect.appendChild(opt);
+    return;
+  }
+  cats.forEach((cat) => {
+    const opt = document.createElement("option");
+    opt.value = cat.id;
+    opt.textContent = cat.name;
+    if (selectedId && selectedId === cat.id) opt.selected = true;
+    linkCategorySelect.appendChild(opt);
+  });
+}
+
+function openLinkModal(link = null) {
+  pendingImageData = null;
+  linkImageFile.value = "";
+  switchImageTab("url");
+
+  if (link) {
+    linkModalTitle.textContent = "ویرایش لینک";
+    linkIdInput.value = link.id;
+    linkTitleInput.value = link.title;
+    linkUrlInput.value = link.url;
+    linkDescInput.value = link.desc || "";
+    linkImageInput.value = link.image && !link.image.startsWith("data:") ? link.image : "";
+    linkImageDataInput.value = link.imageCached || (link.image && link.image.startsWith("data:") ? link.image : "");
+    pendingImageData = linkImageDataInput.value || null;
+    populateCategorySelect(link.categoryId);
+  } else {
+    linkModalTitle.textContent = "افزودن لینک جدید";
+    linkIdInput.value = "";
+    linkTitleInput.value = "";
+    linkUrlInput.value = "";
+    linkDescInput.value = "";
+    linkImageInput.value = "";
+    linkImageDataInput.value = "";
+    populateCategorySelect(adminSession ? (state.activeCategory !== "all" && state.activeCategory !== PERSONAL_CATEGORY_ID ? state.activeCategory : null) : PERSONAL_CATEGORY_ID);
+  }
+  updateImagePreview();
+  openModal("link-modal");
+  setTimeout(() => linkTitleInput.focus(), 100);
+}
+
+function updateImagePreview() {
+  imagePreview.innerHTML = "";
+  let src = pendingImageData || linkImageDataInput.value || linkImageInput.value.trim();
+
+  if (!src) {
+    const url = linkUrlInput.value.trim();
+    if (url) {
+      let finalUrl = url;
+      if (!/^https?:\/\//i.test(finalUrl)) finalUrl = "https://" + finalUrl;
+      src = getFaviconUrl(finalUrl);
+    }
+  }
+
+  if (src) {
+    const img = document.createElement("img");
+    img.src = src;
+    img.alt = "پیش‌نمایش";
+    img.onerror = () => {
+      imagePreview.innerHTML = '<span class="preview-placeholder">📷</span>';
+    };
+    imagePreview.appendChild(img);
+  } else {
+    imagePreview.innerHTML = '<span class="preview-placeholder">📷</span>';
+  }
+}
+
+async function handleLinkSubmit(e) {
+  e.preventDefault();
+
+  const title = linkTitleInput.value.trim();
+  let url = linkUrlInput.value.trim();
+  const categoryId = linkCategorySelect.value;
+  const desc = linkDescInput.value.trim();
+  const imageUrl = linkImageInput.value.trim();
+  const id = linkIdInput.value;
+
+  if (!title || !url) return;
+  if (!categoryId) {
+    alert("لطفاً ابتدا یک دسته‌بندی بسازید.");
+    return;
+  }
+  if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+
+  // مهمان فقط لینک‌های دسته‌بندی شخصی خودش را در همین مرورگر مدیریت می‌کند.
+  if (!adminSession) {
+    const personalLink = { id: id || ("guest-link-" + Date.now()), title, url, categoryId: PERSONAL_CATEGORY_ID, desc, image: linkImageInput.value.trim() || null, imageCached: pendingImageData || linkImageDataInput.value || null, createdAt: Date.now() };
+    const existing = guestLinks.findIndex(l => l.id === id);
+    if (existing >= 0) guestLinks[existing] = { ...guestLinks[existing], ...personalLink };
+    else guestLinks.push(personalLink);
+    saveGuestLinks();
+    state.activeCategory = PERSONAL_CATEGORY_ID;
+    saveActiveCategory(PERSONAL_CATEGORY_ID);
+    saveData(state, { skipCloud: true });
+    closeModal("link-modal");
+    renderCategories();
+    renderLinks();
+    return;
+  }
+
+  // تصویر نهایی
+  let image = imageUrl || null;
+  let imageCached = pendingImageData || null;
+
+  // اگر عکس URL داده شده و هنوز کش نشده، سعی کن کش کنی
+  if (image && !imageCached && navigator.onLine) {
+    imageCached = await cacheImageAsBase64(image);
+  }
+
+  // اگر هیچ عکسی نیست، فاویکون را کش کن
+  if (!image && !imageCached && navigator.onLine) {
+    const fav = getFaviconUrl(url);
+    if (fav) {
+      imageCached = await cacheImageAsBase64(fav);
+    }
+  }
+
+  const linkData = {
+    title,
+    url,
+    categoryId,
+    desc,
+    image: image,
+    imageCached: imageCached,
+  };
+
+  if (id) {
+    const idx = state.links.findIndex((l) => l.id === id);
+    if (idx !== -1) {
+      state.links[idx] = { ...state.links[idx], ...linkData };
+    }
+  } else {
+    state.links.push({
+      id: "link-" + Date.now(),
+      ...linkData,
+      createdAt: Date.now(),
+    });
+  }
+
+  saveData(state);
+  logAudit(id ? "link_update" : "link_create", title);
+  closeModal("link-modal");
+  renderCategories();
+  renderLinks();
+}
+
+// ========== تب‌های منبع عکس ==========
+function switchImageTab(tab) {
+  $$(".img-tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === tab));
+  $("#img-url-panel").classList.toggle("hidden", tab !== "url");
+  $("#img-file-panel").classList.toggle("hidden", tab !== "file");
+}
+
+$$(".img-tab").forEach((tab) => {
+  tab.addEventListener("click", () => switchImageTab(tab.dataset.tab));
+});
+
+// آپلود از هارد
+linkImageFile.addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) {
+    alert("حجم فایل نباید بیشتر از ۲ مگابایت باشد.");
+    return;
+  }
+  if (!file.type.startsWith("image/")) {
+    alert("فقط فایل تصویری مجاز است.");
+    return;
+  }
+  try {
+    // فشرده‌سازی ساده با canvas اگر بزرگ باشد
+    const base64 = await compressImage(file, 400, 0.8);
+    pendingImageData = base64;
+    linkImageDataInput.value = base64;
+    linkImageInput.value = ""; // پاک کردن URL
+    updateImagePreview();
+  } catch {
+    alert("خطا در خواندن فایل.");
+  }
+});
+
+function compressImage(file, maxSize, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > maxSize || height > maxSize) {
+        if (width > height) {
+          height = Math.round((height * maxSize) / width);
+          width = maxSize;
+        } else {
+          width = Math.round((width * maxSize) / height);
+          height = maxSize;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+// درگ و دراپ
+const fileDrop = document.querySelector(".file-drop");
+if (fileDrop) {
+  ["dragenter", "dragover"].forEach((ev) => {
+    fileDrop.addEventListener(ev, (e) => {
+      e.preventDefault();
+      fileDrop.classList.add("dragover");
+    });
+  });
+  ["dragleave", "drop"].forEach((ev) => {
+    fileDrop.addEventListener(ev, (e) => {
+      e.preventDefault();
+      fileDrop.classList.remove("dragover");
+    });
+  });
+  fileDrop.addEventListener("drop", (e) => {
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      linkImageFile.files = e.dataTransfer.files;
+      linkImageFile.dispatchEvent(new Event("change"));
+    }
+  });
+}
+
+// ========== مودال دسته‌بندی ==========
+function openCategoryModal() {
+  categoryNameInput.value = "";
+  categoryColorInput.value = "#4f6ef7";
+  $$(".color-swatch").forEach((s) => s.classList.remove("active"));
+  $$(".color-swatch")[0]?.classList.add("active");
+  openModal("category-modal");
+  setTimeout(() => categoryNameInput.focus(), 100);
+}
+
+function handleCategorySubmit(e) {
+  e.preventDefault();
+  const name = categoryNameInput.value.trim();
+  const color = categoryColorInput.value || "#4f6ef7";
+  if (!name) return;
+  if (state.categories.some((c) => c.name === name)) {
+    alert("این نام دسته‌بندی قبلاً وجود دارد.");
+    return;
+  }
+  state.categories.push({
+    id: "cat-" + Date.now(),
+    name,
+    color,
+    isSystem: false,
+  });
+  saveData(state);
+  logAudit("category_create", name);
+  closeModal("category-modal");
+  renderCategories();
+  populateCategorySelect();
+}
+
+document.getElementById("color-picker").addEventListener("click", (e) => {
+  const swatch = e.target.closest(".color-swatch");
+  if (!swatch) return;
+  $$(".color-swatch").forEach((s) => s.classList.remove("active"));
+  swatch.classList.add("active");
+  categoryColorInput.value = swatch.dataset.color;
+});
+
+// ========== حذف ==========
+function openConfirm(message, payload) {
+  confirmMessage.textContent = message;
+  pendingDelete = payload;
+  openModal("confirm-modal");
+}
+
+function handleConfirmDelete() {
+  if (!pendingDelete) return;
+  if (pendingDelete.type === "link") {
+    if (!adminSession && guestLinks.some(l => l.id === pendingDelete.id)) {
+      guestLinks = guestLinks.filter(l => l.id !== pendingDelete.id);
+      saveGuestLinks();
+    } else if (adminSession) {
+      state.links = state.links.filter((l) => l.id !== pendingDelete.id);
+    }
+  } else if (pendingDelete.type === "category") {
+    state.links = state.links.map((l) =>
+      l.categoryId === pendingDelete.id ? { ...l, categoryId: null } : l
+    );
+    state.categories = state.categories.filter((c) => c.id !== pendingDelete.id);
+    if (state.activeCategory === pendingDelete.id) { state.activeCategory = "all"; saveActiveCategory("all"); }
+  }
+  const deletedItem = pendingDelete;
+  pendingDelete = null;
+  saveData(state);
+  logAudit(deletedItem.type === "link" ? "link_delete" : "category_delete", deletedItem.id);
+  closeModal("confirm-modal");
+  renderCategories();
+  renderLinks();
+}
+
+// ========== مودال ==========
+function openModal(id) {
+  document.getElementById(id)?.classList.remove("hidden");
+}
+function closeModal(id) {
+  document.getElementById(id)?.classList.add("hidden");
+}
+
+document.addEventListener("click", (e) => {
+  if (e.target.classList.contains("modal-overlay") || e.target.hasAttribute("data-close")) {
+    const modal = e.target.closest(".modal");
+    if (modal) modal.classList.add("hidden");
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") $$(".modal:not(.hidden)").forEach((m) => m.classList.add("hidden"));
+});
+
+// ========== جستجو ==========
+searchInput.addEventListener("input", () => {
+  searchQuery = searchInput.value.trim();
+  searchClear.classList.toggle("hidden", !searchQuery);
+  renderLinks();
+});
+searchClear.addEventListener("click", () => {
+  searchInput.value = "";
+  searchQuery = "";
+  searchClear.classList.add("hidden");
+  renderLinks();
+  searchInput.focus();
+});
+
+linkImageInput.addEventListener("input", () => {
+  pendingImageData = null;
+  linkImageDataInput.value = "";
+  updateImagePreview();
+});
+linkUrlInput.addEventListener("input", updateImagePreview);
+linkUrlInput.addEventListener("blur", updateImagePreview);
+
+// ========== ابزار ==========
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str || "";
+  return div.innerHTML;
+}
+function escapeAttr(str) {
+  return (str || "").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// ========== رویدادها ==========
+themeToggle.addEventListener("click", toggleTheme);
+$("#add-link-btn").addEventListener("click", () => openLinkModal());
+$("#add-category-btn").addEventListener("click", openCategoryModal);
+linkForm.addEventListener("submit", handleLinkSubmit);
+categoryForm.addEventListener("submit", handleCategorySubmit);
+confirmDeleteBtn.addEventListener("click", handleConfirmDelete);
+
+// ========== همگام‌سازی ابری (JSONBin.io) ==========
+function setSyncStatus(text, type = "") {
+  const el = document.getElementById("sync-status");
+  if (!el) return;
+  el.textContent = text;
+  el.className = "sync-status" + (type ? " " + type : "");
+}
+
+function showSyncMessage(text, type) {
+  const el = document.getElementById("sync-message");
+  if (!el) return;
+  el.textContent = text;
+  el.className = "sync-message " + type;
+  el.classList.remove("hidden");
+}
+
+function getCloudPayload() {
+  return {
+    categories: state.categories.filter(c => c.id !== PERSONAL_CATEGORY_ID),
+    links: state.links,
+    // Active category and guest personal links are device-local, never synced.
+    updatedAt: state.updatedAt || Date.now(),
+  };
+}
+
+async function pushToCloud(showAlert = true) {
+  if (!supabaseClient) { if (showAlert) showSyncMessage("ابتدا تنظیمات Supabase را در config.js وارد کنید.", "err"); return false; }
+  if (!adminSession) { if (showAlert) showSyncMessage("برای ذخیره تغییرات باید با حساب مدیر وارد شوید.", "err"); return false; }
+  if (isSyncing) { clearTimeout(cloudSaveTimer); cloudSaveTimer = setTimeout(() => pushToCloud(showAlert), 1200); return false; }
+  isSyncing = true; setSyncStatus("در حال ذخیره…", "syncing");
+  try {
+    const payload = getCloudPayload();
+    const { error } = await supabaseClient.from("linkbox_content").upsert({ id: 1, data: payload, updated_at: new Date().toISOString() });
+    if (error) throw error;
+    if ((state.updatedAt || 0) <= (payload.updatedAt || 0)) localCloudDirty = false;
+    else { clearTimeout(cloudSaveTimer); cloudSaveTimer = setTimeout(() => pushToCloud(false), 300); }
+    setSyncStatus("ذخیره ابری شد ✓", "ok");
+    createCloudBackup(payload).catch(err => console.warn("Cloud backup failed", err));
+    if (showAlert) showSyncMessage("تغییرات با موفقیت در فضای مشترک ذخیره شد.", "ok");
+    return true;
+  } catch (e) { console.error(e); setSyncStatus("خطا در ذخیره", "err"); if (showAlert) showSyncMessage("ذخیره ناموفق: " + (e.message || "اتصال را بررسی کنید"), "err"); return false; }
+  finally { isSyncing = false; }
+}
+
+async function pullFromCloud(showAlert = true) {
+  // اگر ویرایش محلی هنوز به ابر نرسیده، داده قدیمی سرور نباید جای آن را بگیرد.
+  if (localCloudDirty) {
+    if (!cloudSaveTimer && adminSession && !isSyncing) pushToCloud(false);
+    return false;
+  }
+  if (!supabaseClient) { setSyncStatus("نیازمند تنظیم Supabase", "err"); if (showAlert) showSyncMessage("config.js را طبق README تنظیم کنید.", "err"); return false; }
+  if (isSyncing) return false;
+  isSyncing = true;
+  if (showAlert) setSyncStatus("در حال دریافت…", "syncing");
+  try {
+    const { data: row, error } = await supabaseClient.from("linkbox_content").select("data, updated_at").eq("id", 1).maybeSingle();
+    if (error) throw error;
+    if (!row?.data) { setSyncStatus("هنوز اطلاعاتی ذخیره نشده", ""); return true; }
+    const remote = row.data;
+    if (!Array.isArray(remote.categories)) remote.categories = structuredClone(defaultData.categories);
+    if (!remote.categories.some(c => c.id === "all")) remote.categories.unshift({ id:"all", name:"همه لینک‌ها", isSystem:true, color:"#4f6ef7" });
+    remote.categories.forEach(c => { if (!c.color) c.color = "#4f6ef7"; });
+    if (!Array.isArray(remote.links)) remote.links = [];
+    // Polling should not rebuild the DOM unless cloud content actually changed.
+    const remoteSignature = JSON.stringify({ categories: remote.categories, links: remote.links });
+    const localSignature = JSON.stringify({ categories: state.categories.filter(c => c.id !== PERSONAL_CATEGORY_ID), links: state.links });
+    if (remoteSignature === localSignature) {
+      setSyncStatus("همگام با سرور ✓", "ok");
+      return true;
+    }
+    const deviceTheme = getSavedLocalTheme() || state.theme || "light";
+    const localActiveCategory = loadActiveCategory() || state.activeCategory;
+    state = { ...defaultData, ...remote, theme: deviceTheme, activeCategory: localActiveCategory };
+    ensurePersonalCategory();
+    if (!state.categories.some(c => c.id === state.activeCategory)) { state.activeCategory = "all"; saveActiveCategory("all"); }
+    saveData(state, { skipCloud: true });
+    applyTheme(deviceTheme); renderCategories(); renderLinks(); updateAdminUI();
+    setSyncStatus("همگام با سرور ✓", "ok");
+    if (showAlert) showSyncMessage("اطلاعات مشترک دریافت شد.", "ok");
+    return true;
+  } catch (e) { console.error(e); setSyncStatus("خطا در دریافت", "err"); if (showAlert) showSyncMessage("دریافت ناموفق: " + (e.message || "اتصال را بررسی کنید"), "err"); return false; }
+  finally { isSyncing = false; }
+}
+
+// ========== آمار، علاقه‌مندی، مرتب‌سازی، پشتیبان و گزارش فعالیت ==========
+async function trackEvent(eventType, link = null) {
+  if (!supabaseClient || !navigator.onLine) return;
+  try { await supabaseClient.from("linkbox_events").insert({ event_type: eventType, link_id: link?.id || null, link_title: link?.title || null, category_id: link?.categoryId || null, visitor_id: visitorId }); }
+  catch (e) { console.debug("Event tracking unavailable", e); }
+}
+function logAudit(action, details = "") {
+  if (!adminSession || !supabaseClient) return;
+  supabaseClient.from("linkbox_audit").insert({ action, details: String(details).slice(0, 500), actor: adminSession.user?.email || "admin" }).then(({error}) => { if (error) console.warn("Audit log unavailable", error); });
+}
+function reorderCategories(sourceId, targetId) {
+  if (!adminSession) return;
+  const movable = state.categories.filter(c => c.id !== "all" && c.id !== PERSONAL_CATEGORY_ID);
+  const from = movable.findIndex(c=>c.id===sourceId), to = movable.findIndex(c=>c.id===targetId);
+  if (from < 0 || to < 0) return;
+  const [item] = movable.splice(from,1); movable.splice(to,0,item);
+  const fixed = state.categories.filter(c=>c.id==="all" || c.id===PERSONAL_CATEGORY_ID);
+  state.categories = [state.categories.find(c=>c.id==="all"), ...movable, ...fixed.filter(c=>c.id!=="all")].filter(Boolean);
+  saveData(state); logAudit("category_reorder", `${sourceId} → ${targetId}`); renderCategories(); renderLinks();
+}
+function reorderLinks(sourceId, targetId) {
+  if (!adminSession) return;
+  const categoryId = state.activeCategory;
+  const subset = state.links.filter(l=>l.categoryId===categoryId);
+  const from = subset.findIndex(l=>l.id===sourceId), to = subset.findIndex(l=>l.id===targetId);
+  if (from < 0 || to < 0) return;
+  const [item] = subset.splice(from,1); subset.splice(to,0,item);
+  let cursor=0; state.links = state.links.map(l=>l.categoryId===categoryId ? subset[cursor++] : l);
+  saveData(state); logAudit("link_reorder", `${sourceId} → ${targetId}`); renderLinks();
+}
+function downloadBackup() { exportData(); logAudit("backup_download", "دانلود پشتیبان JSON"); }
+async function createCloudBackup(payload = getCloudPayload()) {
+  if (!adminSession || !supabaseClient) return;
+  const { error } = await supabaseClient.from("linkbox_backups").insert({ data: payload, created_by: adminSession.user?.email || "admin" });
+  if (error) throw error;
+  // Keep a rolling 90-day backup window to prevent unbounded table growth.
+  await supabaseClient.from("linkbox_backups").delete().lt("created_at", new Date(Date.now() - 90 * 86400000).toISOString());
+}
+function statCard(label, value) { return `<div class="analytics-stat"><span>${escapeHtml(label)}</span><strong>${Number(value||0).toLocaleString("fa-IR")}</strong></div>`; }
+async function loadAnalytics() {
+  const status = document.getElementById("analytics-status");
+  if (!adminSession || !supabaseClient) { status.textContent = "برای مشاهده گزارش‌ها باید مدیر وارد شده باشد."; return; }
+  status.textContent = "در حال دریافت گزارش‌ها...";
+  const days = Number(document.getElementById("analytics-range").value || 30);
+  const since = new Date(Date.now() - days*86400000).toISOString();
+  try {
+    const [eventsRes, auditRes] = await Promise.all([
+      supabaseClient.from("linkbox_events").select("event_type,link_id,link_title,category_id,visitor_id,created_at").gte("created_at", since).order("created_at", {ascending:false}).limit(10000),
+      supabaseClient.from("linkbox_audit").select("action,details,actor,created_at").order("created_at", {ascending:false}).limit(30)
+    ]);
+    if (eventsRes.error) throw eventsRes.error;
+    if (auditRes.error) throw auditRes.error;
+    const events=eventsRes.data||[], views=events.filter(x=>x.event_type==="page_view"), clicks=events.filter(x=>x.event_type==="link_click");
+    const unique=new Set(views.map(x=>x.visitor_id).filter(Boolean)).size;
+    document.getElementById("analytics-stats").innerHTML = statCard("بازدید صفحه",views.length)+statCard("بازدیدکننده یکتا (تقریبی)",unique)+statCard("کلیک لینک‌ها",clicks.length)+statCard("تعداد دسته‌ها",state.categories.filter(c=>!c.isSystem).length);
+    const counts={}; clicks.forEach(e=>{const key=e.link_id||e.link_title||"نامشخص"; if(!counts[key]) counts[key]={title:e.link_title||key,count:0}; counts[key].count++;});
+    const popular=Object.values(counts).sort((a,b)=>b.count-a.count).slice(0,10);
+    document.getElementById("popular-links").innerHTML=popular.length?`<ol class="analytics-list">${popular.map(x=>`<li><span>${escapeHtml(x.title)}</span><b>${x.count.toLocaleString("fa-IR")}</b></li>`).join("")}</ol>`:"<p class='analytics-empty'>هنوز کلیکی ثبت نشده است.</p>";
+    document.getElementById("audit-list").innerHTML=(auditRes.data||[]).length?`<ul class="analytics-list audit-items">${auditRes.data.map(x=>`<li><span><b>${escapeHtml(x.action)}</b><small>${escapeHtml(x.details||"")} · ${new Date(x.created_at).toLocaleString("fa-IR")}</small></span><em>${escapeHtml(x.actor||"مدیر")}</em></li>`).join("")}</ul>`:"<p class='analytics-empty'>هنوز فعالیتی ثبت نشده است.</p>";
+    status.textContent=`گزارش ${days.toLocaleString("fa-IR")} روز گذشته · به‌روزرسانی ${new Date().toLocaleTimeString("fa-IR")}`;
+  } catch(e) { console.error(e); status.textContent="دریافت آمار ناموفق بود. ابتدا اسکریپت supabase-schema.sql را در Supabase اجرا کنید. جزئیات: "+(e.message||""); }
+}
+document.getElementById("analytics-nav-btn")?.addEventListener("click",()=>{ if(!adminSession){openSyncModal();return;} openModal("analytics-modal"); loadAnalytics(); });
+document.getElementById("analytics-refresh")?.addEventListener("click",loadAnalytics);
+document.getElementById("analytics-range")?.addEventListener("change",loadAnalytics);
+document.getElementById("backup-download")?.addEventListener("click",downloadBackup);
+document.getElementById("backup-now")?.addEventListener("click",async()=>{const b=document.getElementById("backup-now");b.disabled=true;try{await createCloudBackup();logAudit("backup_cloud","ایجاد پشتیبان ابری دستی");document.getElementById("analytics-status").textContent="نسخه پشتیبان ابری با موفقیت ایجاد شد.";}catch(e){document.getElementById("analytics-status").textContent="ایجاد پشتیبان ناموفق بود: "+(e.message||"");}finally{b.disabled=false;}});
+
+function openSyncModal() {
+  const msg = document.getElementById("sync-message"); if (msg) msg.classList.add("hidden");
+  document.getElementById("admin-logout-btn")?.classList.toggle("hidden", !adminSession);
+  document.getElementById("admin-password").value = "";
+  openModal("sync-modal");
+}
+
+function updateAdminUI() {
+  const isAdmin = !!adminSession;
+  if (typeof syncGalleryAdminControls === "function") syncGalleryAdminControls();
+  const addLink = document.getElementById("add-link-btn"); if (addLink) addLink.classList.remove("hidden");
+  const addCategory = document.getElementById("add-category-btn"); if (addCategory) addCategory.classList.toggle("hidden", !isAdmin);
+  document.getElementById("analytics-nav-btn")?.classList.toggle("hidden", !isAdmin);
+  const btn = document.getElementById("sync-settings-btn");
+  if (btn) btn.textContent = isAdmin ? "مدیر (خروج)" : "ورود مدیر";
+  const logout = document.getElementById("admin-logout-btn"); if (logout) logout.classList.toggle("hidden", !isAdmin);
+  document.querySelectorAll('[data-action="edit"], [data-action="delete"], .cat-delete').forEach(el => {
+    const card = el.closest(".link-card");
+    const linkId = card?.querySelector('[data-action="edit"]') ? (card.querySelector('[data-action="edit"]').dataset.linkId || null) : null;
+    const guestOwnsLink = !isAdmin && state.activeCategory === PERSONAL_CATEGORY_ID && guestLinks.some(l => l.id === (el.dataset.linkId || linkId) || (card && l.url === card.dataset.url));
+    el.classList.toggle("hidden", !isAdmin && !guestOwnsLink);
+  });
+  // Rebuild controls so drag handles and favorite buttons immediately reflect login state.
+  if (typeof renderCategories === "function" && typeof renderLinks === "function") { renderCategories(); renderLinks(); }
+}
+
+async function initializeCloud() {
+  if (!supabaseClient) { setSyncStatus("تنظیم Supabase لازم است", ""); updateAdminUI(); return; }
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  adminSession = session;
+  updateAdminUI();
+  await pullFromCloud(false);
+  supabaseClient.auth.onAuthStateChange((_event, session) => {
+    adminSession = session;
+    updateAdminUI();
+    if (session) setTimeout(() => pullFromCloud(false), 0);
+  });
+  // دریافت دوره‌ای برای تازه‌ماندن نمایش در دستگاه‌های مختلف
+  // Background sync less frequently to avoid UI churn; pullFromCloud now skips unchanged content.
+  setInterval(() => { if (navigator.onLine && !isSyncing && !localCloudDirty) pullFromCloud(false); }, 60000);
+}
+
+document.getElementById("admin-login-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!supabaseClient) { showSyncMessage("ابتدا config.js را طبق راهنما تنظیم کنید.", "err"); return; }
+  const email = document.getElementById("admin-email").value.trim();
+  const password = document.getElementById("admin-password").value;
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) { showSyncMessage("ورود ناموفق است. ایمیل و رمز را بررسی کنید.", "err"); return; }
+  adminSession = data.session; updateAdminUI(); closeModal("sync-modal"); await pullFromCloud(false);
+});
+document.getElementById("admin-logout-btn")?.addEventListener("click", async () => {
+  if (supabaseClient) await supabaseClient.auth.signOut();
+  adminSession = null; updateAdminUI(); closeModal("sync-modal");
+});
+
+// خروجی / ورود فایل
+function exportData() {
+  const blob = new Blob([JSON.stringify(getCloudPayload(), null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `linkbox-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function importData(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!data.categories && !data.links) throw new Error("فرمت نامعتبر");
+      if (!Array.isArray(data.categories)) data.categories = structuredClone(defaultData.categories);
+      if (!data.categories.some((c) => c.id === "all")) {
+        data.categories.unshift({ id: "all", name: "همه لینک‌ها", isSystem: true, color: "#4f6ef7" });
+      }
+      if (!Array.isArray(data.links)) data.links = [];
+      state = { ...defaultData, ...data };
+      saveData(state);
+      applyTheme(state.theme || "light");
+      renderCategories();
+      renderLinks();
+      showSyncMessage("فایل با موفقیت وارد شد.", "ok");
+      alert("داده‌ها وارد شد.");
+    } catch (e) {
+      alert("خطا در خواندن فایل: " + (e.message || ""));
+    }
+  };
+  reader.readAsText(file);
+}
+
+// رویدادهای همگام‌سازی
+document.getElementById("sync-settings-btn")?.addEventListener("click", async () => { if (adminSession && supabaseClient) { await supabaseClient.auth.signOut(); adminSession = null; updateAdminUI(); } else openSyncModal(); });
+
+
+
+document.getElementById("export-btn")?.addEventListener("click", exportData);
+document.getElementById("import-btn")?.addEventListener("click", () => {
+  document.getElementById("import-file").click();
+});
+document.getElementById("import-file")?.addEventListener("change", (e) => {
+  const file = e.target.files?.[0];
+  if (file) importData(file);
+  e.target.value = "";
+});
+
+// ========== منوی بالای صفحه و گالری عکس ==========
+const menuToggle = document.getElementById("top-menu-toggle");
+const topMenu = document.getElementById("top-menu");
+const galleryPage = document.getElementById("gallery-page");
+const linksPage = document.querySelector(".content");
+const categoriesBar = document.querySelector(".categories-bar-wrap");
+const galleryNavBtn = document.getElementById("gallery-nav-btn");
+const galleryUploadBtn = document.getElementById("gallery-upload-btn");
+const galleryUploadInput = document.getElementById("gallery-upload-input");
+let galleryLoaded = false;
+let galleryRequest = 0;
+let galleryQuery = "";
+const galleryDbName = "linkbox-gallery-local-v1";
+function openGalleryDB() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) return reject(new Error("مرورگر از ذخیره‌سازی محلی پشتیبانی نمی‌کند"));
+    const req = indexedDB.open(galleryDbName, 1);
+    req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains("photos")) req.result.createObjectStore("photos", { keyPath: "id" }); };
+    req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
+  });
+}
+async function galleryDbAll() {
+  const db = await openGalleryDB();
+  return new Promise((resolve, reject) => { const tx=db.transaction("photos","readonly"); const req=tx.objectStore("photos").getAll(); req.onsuccess=()=>resolve(req.result||[]); req.onerror=()=>reject(req.error); tx.oncomplete=()=>db.close(); });
+}
+async function galleryDbPut(photo) {
+  const db=await openGalleryDB();
+  return new Promise((resolve,reject)=>{ const tx=db.transaction("photos","readwrite"); tx.objectStore("photos").put(photo); tx.oncomplete=()=>{db.close();resolve();}; tx.onerror=()=>{db.close();reject(tx.error);}; });
+}
+async function galleryDbDelete(id) {
+  const db=await openGalleryDB();
+  return new Promise((resolve,reject)=>{ const tx=db.transaction("photos","readwrite"); tx.objectStore("photos").delete(id); tx.oncomplete=()=>{db.close();resolve();}; tx.onerror=()=>{db.close();reject(tx.error);}; });
+}
+const galleryHiddenKey = "linkbox-gallery-hidden-v1";
+function galleryHiddenIds(){ try{return new Set(JSON.parse(localStorage.getItem(galleryHiddenKey)||"[]"));}catch{return new Set();} }
+function syncGalleryAdminControls(){ galleryUploadBtn?.classList.toggle("hidden", !adminSession); }
+menuToggle?.addEventListener("click", () => {
+  const open = topMenu.classList.toggle("hidden") === false;
+  menuToggle.setAttribute("aria-expanded", String(open));
+});
+document.addEventListener("click", (event) => {
+  if (topMenu && !topMenu.contains(event.target) && !menuToggle?.contains(event.target)) {
+    topMenu.classList.add("hidden"); menuToggle?.setAttribute("aria-expanded", "false");
+  }
+});
+function showGallery(show) {
+  galleryPage?.classList.toggle("hidden", !show);
+  linksPage?.classList.toggle("hidden", show);
+  categoriesBar?.classList.toggle("hidden", show);
+  document.querySelector(".header-center")?.classList.toggle("hidden", show);
+  if (galleryNavBtn) galleryNavBtn.innerHTML = show ? "<span>←</span> بازگشت به لینک‌ها" : "<span>▧</span> گالری عکس";
+  syncGalleryAdminControls();
+  if (show && !galleryLoaded) loadGallery(galleryQuery);
+  topMenu?.classList.add("hidden"); menuToggle?.setAttribute("aria-expanded", "false");
+}
+galleryNavBtn?.addEventListener("click", () => showGallery(galleryPage.classList.contains("hidden")));
+async function compressGalleryPhoto(file) {
+  if (!file.type.startsWith("image/")) throw new Error(`${file.name} فایل تصویری نیست`);
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1920 / bitmap.width, 1080 / bitmap.height);
+  const canvas = document.createElement("canvas"); canvas.width=Math.max(1,Math.round(bitmap.width*scale)); canvas.height=Math.max(1,Math.round(bitmap.height*scale));
+  const ctx=canvas.getContext("2d", {alpha:false}); ctx.drawImage(bitmap,0,0,canvas.width,canvas.height); bitmap.close?.();
+  return new Promise(resolve=>canvas.toBlob(blob=>resolve(blob),"image/jpeg",0.84));
+}
+galleryUploadBtn?.addEventListener("click", () => { if (!adminSession) { openSyncModal(); return; } galleryUploadInput?.click(); });
+galleryUploadInput?.addEventListener("change", async () => {
+  if (!adminSession) { galleryUploadInput.value=""; openSyncModal(); return; }
+  const files=Array.from(galleryUploadInput.files||[]); if(!files.length)return;
+  const status=document.getElementById("gallery-status"); let done=0;
+  try {
+    for (const file of files) {
+      status.textContent=`در حال آماده‌سازی ${file.name} (${done+1}/${files.length})…`;
+      const blob=await compressGalleryPhoto(file);
+      if(!blob) throw new Error("فشرده‌سازی تصویر انجام نشد");
+      const dataUrl=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.readAsDataURL(blob);});
+      await galleryDbPut({id:`local-${Date.now()}-${Math.random().toString(36).slice(2)}`,title:file.name.replace(/\.[^.]+$/, ""),src:dataUrl,tags:"بارگذاری‌شده توسط مدیر",createdAt:Date.now(),local:true}); done++;
+    }
+    galleryLoaded=false; await loadGallery(galleryQuery); status.textContent=`${done} عکس با موفقیت در همین مرورگر ذخیره شد.`;
+  } catch(error) { status.textContent=`بارگذاری ناموفق بود: ${error.message||"فضای ذخیره‌سازی کافی نیست"}`; }
+  finally { galleryUploadInput.value=""; }
+});
+async function deleteGalleryPhoto(item) {
+  if (!adminSession) { openSyncModal(); return; }
+  if (!confirm(`عکس «${item.title||"بدون عنوان"}» حذف شود؟`)) return;
+  try {
+    if (item.local) await galleryDbDelete(item.id);
+    else { const hidden=galleryHiddenIds(); hidden.add(item.id); localStorage.setItem(galleryHiddenKey,JSON.stringify([...hidden])); }
+    galleryLoaded=false; await loadGallery(galleryQuery);
+  } catch(error) { alert("حذف عکس انجام نشد: "+(error.message||"خطای ذخیره‌سازی")); }
+}
+async function loadGallery(query = "") {
+  const grid=document.getElementById("gallery-grid"), status=document.getElementById("gallery-status");
+  if(!grid||!status)return;
+  galleryQuery=query; const requestId=++galleryRequest; status.textContent="در حال آماده‌سازی گالری…"; grid.replaceChildren();
+  try {
+    const response=await fetch("./gallery/images.json", {cache:"force-cache"});
+    if(!response.ok) throw new Error("gallery/images.json پیدا نشد");
+    const data=await response.json();
+    if(requestId!==galleryRequest)return;
+    const base=(Array.isArray(data)?data:(data.images||[])).filter(item=>typeof item==="string"||(item&&typeof item.src==="string")).map((item,index)=>{
+      const value=typeof item==="string"?{src:item,title:item.split("/").pop().replace(/\.[^.]+$/,"")}:item;
+      return {...value,id:`manifest-${value.src}`,local:false};
+    });
+    const hidden=galleryHiddenIds(); const local=await galleryDbAll();
+    if(requestId!==galleryRequest)return;
+    const all=[...local.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)),...base.filter(item=>!hidden.has(item.id))];
+    const term=(query||"").trim().toLocaleLowerCase();
+    const filtered=all.filter(item=>!term||`${item.title||""} ${item.tags||""} ${item.src||""}`.toLocaleLowerCase().includes(term));
+    if(!filtered.length){status.textContent=all.length?"برای این عبارت عکسی پیدا نشد.":"هنوز عکسی وجود ندارد. مدیر می‌تواند از دکمه بارگذاری عکس استفاده کند.";galleryLoaded=true;return;}
+    const fragment=document.createDocumentFragment();
+    filtered.forEach((item,index)=>{
+      const card=document.createElement("article");card.className="gallery-item";
+      const img=document.createElement("img");img.loading=index<3?"eager":"lazy";img.decoding="async";img.fetchPriority=index<2?"high":"auto";img.alt=item.title||"تصویر گالری";
+      img.src=item.local?item.src:`./gallery/${String(item.src).replace(/^\.\//,"").replace(/^gallery\//,"")}`;
+      img.onerror=()=>{card.classList.add("gallery-item-error");};
+      const title=document.createElement("div");title.className="gallery-item-title";title.textContent=item.title||"تصویر گالری";
+      const open=document.createElement("a");open.className="gallery-open";open.href=img.src;open.target="_blank";open.rel="noopener noreferrer";open.setAttribute("aria-label",`بازکردن ${title.textContent}`);open.textContent="↗";
+      card.append(img,title,open);
+      if(adminSession){const del=document.createElement("button");del.type="button";del.className="gallery-delete";del.textContent="🗑";del.title="حذف عکس";del.setAttribute("aria-label","حذف عکس");del.addEventListener("click",()=>deleteGalleryPhoto(item));card.appendChild(del);}
+      fragment.appendChild(card);
+    });
+    grid.appendChild(fragment);status.textContent=`${filtered.length} تصویر · بارگذاری تنبل برای نمایش سریع‌تر`;
+    galleryLoaded=true;
+  }catch(error){if(requestId!==galleryRequest)return;galleryLoaded=false;status.textContent="فهرست تصاویر خوانده نشد. پوشه gallery و فایل images.json را بررسی کنید.";console.warn("Local gallery loading failed",error);}
+}
+document.getElementById("gallery-refresh")?.addEventListener("click",()=>{galleryLoaded=false;loadGallery(galleryQuery);});
+document.getElementById("gallery-search-form")?.addEventListener("submit",event=>{event.preventDefault();loadGallery(document.getElementById("gallery-search-input").value.trim());});
+// Reflect the current administrator session in the gallery controls.
+syncGalleryAdminControls();
+
+// ========== شروع ==========
+// Restore this device's own theme before cloud data is loaded.
+applyTheme(getSavedLocalTheme() || state.theme || "light");
+
+// Cache the app shell so the page can open after it has been visited online once.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch((err) => console.warn("Offline cache unavailable", err));
+  });
+}
+renderCategories();
+renderLinks();
+updateClock();
+updateJalaliDate();
+setInterval(updateClock, 1000);
+setInterval(updateJalaliDate, 60000);
+
+initializeCloud();
+if (!pageViewTracked) { pageViewTracked = true; trackEvent("page_view"); }
+
+window.addEventListener("online", () => {
+  state.links.forEach((link) => {
+    if (!link.imageCached) ensureImageCached(link);
+  });
+  if (supabaseClient) pullFromCloud(false);
+});
+
+// Guest mode: block any mutation form submission unless an authenticated manager is present.
+document.getElementById("category-form")?.addEventListener("submit", e => { if (!adminSession) { e.preventDefault(); e.stopImmediatePropagation(); openSyncModal(); } }, true);
+
+document.addEventListener("click", (e) => {
+  const action = e.target.closest('[data-action="edit"], [data-action="delete"], .cat-delete');
+  if (!action || adminSession) return;
+  const linkId = action.dataset.linkId;
+  const isGuestPersonalLink = state.activeCategory === PERSONAL_CATEGORY_ID && !!linkId && guestLinks.some(l => l.id === linkId);
+  if (isGuestPersonalLink && (action.dataset.action === "edit" || action.dataset.action === "delete")) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+}, true);
