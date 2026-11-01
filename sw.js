@@ -1,7 +1,8 @@
-const CACHE_NAME = "linkbox-shell-v4";
+const CACHE_NAME = "linkbox-shell-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
+  "./game.html",
   "./styles.css",
   "./app.js",
   "./config.js",
