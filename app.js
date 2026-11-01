@@ -1149,14 +1149,20 @@ async function galleryDbDelete(id) {
 const galleryHiddenKey = "linkbox-gallery-hidden-v1";
 function galleryHiddenIds(){ try{return new Set(JSON.parse(localStorage.getItem(galleryHiddenKey)||"[]"));}catch{return new Set();} }
 function syncGalleryAdminControls(){ galleryUploadBtn?.classList.toggle("hidden", !adminSession); }
-menuToggle?.addEventListener("click", () => {
-  const open = topMenu.classList.toggle("hidden") === false;
+function setTopMenuOpen(open) {
+  if (!topMenu || !menuToggle) return;
+  topMenu.classList.toggle("hidden", !open);
   menuToggle.setAttribute("aria-expanded", String(open));
+  document.querySelector(".header")?.classList.toggle("menu-open", open);
+}
+menuToggle?.addEventListener("click", () => {
+  setTopMenuOpen(topMenu.classList.contains("hidden"));
 });
 document.addEventListener("click", (event) => {
-  if (topMenu && !topMenu.contains(event.target) && !menuToggle?.contains(event.target)) {
-    topMenu.classList.add("hidden"); menuToggle?.setAttribute("aria-expanded", "false");
-  }
+  if (topMenu && !topMenu.contains(event.target) && !menuToggle?.contains(event.target)) setTopMenuOpen(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && topMenu && !topMenu.classList.contains("hidden")) { setTopMenuOpen(false); menuToggle?.focus(); }
 });
 function showGallery(show) {
   galleryPage?.classList.toggle("hidden", !show);
@@ -1166,7 +1172,7 @@ function showGallery(show) {
   if (galleryNavBtn) galleryNavBtn.innerHTML = show ? "<span>←</span> بازگشت به لینک‌ها" : "<span>▧</span> گالری عکس";
   syncGalleryAdminControls();
   if (show && !galleryLoaded) loadGallery(galleryQuery);
-  topMenu?.classList.add("hidden"); menuToggle?.setAttribute("aria-expanded", "false");
+  setTopMenuOpen(false);
 }
 galleryNavBtn?.addEventListener("click", () => showGallery(galleryPage.classList.contains("hidden")));
 async function compressGalleryPhoto(file) {
