@@ -25,7 +25,6 @@
             <button id="add-category-btn" class="menu-action"><span>▤</span> دسته‌بندی جدید</button>
             <button id="sync-settings-btn" class="menu-action" title="ورود مدیر"><span>☁</span> همگام‌سازی</button>
             <button id="gallery-nav-btn" class="menu-action"><span>▧</span> گالری عکس</button>
-            <a class="menu-action" href="game.html"><span>🎮</span> بازی کمبت ۲</a>
             <button id="analytics-nav-btn" class="menu-action hidden"><span>▥</span> آمار و مدیریت</button>
             <span id="sync-status" class="sync-status" title="وضعیت همگام‌سازی"></span>
           </nav>
@@ -266,8 +265,30 @@
     </div>
   </div>
 
+
+  <!-- LinkBox AI floating chat -->
+  <button id="ai-chat-launcher" class="ai-chat-launcher" aria-label="باز کردن دستیار هوشمند" title="دستیار هوشمند">✦<span>چت هوشمند</span></button>
+  <section id="ai-chat-panel" class="ai-chat-panel" aria-label="دستیار هوشمند LinkBox" aria-hidden="true">
+    <header class="ai-chat-header"><div class="ai-chat-brand"><span class="ai-chat-orb">✦</span><div><strong>دستیار هوشمند</strong><small><i></i> آماده گفتگو</small></div></div><div class="ai-chat-tools"><button id="ai-chat-new" title="گفتگوی جدید">＋</button><button id="ai-chat-close" title="بستن">×</button></div></header>
+    <div id="ai-chat-messages" class="ai-chat-messages" aria-live="polite"><div class="ai-chat-welcome"><div class="ai-chat-welcome-icon">✦</div><h3>سلام، چطور می‌تونم کمک کنم؟</h3><p>هر چیزی می‌خواهی بپرس؛ از ایده‌پردازی تا نوشتن و تحلیل.</p><div class="ai-chat-suggestions"><button>یک متن حرفه‌ای بنویس</button><button>یک موضوع را خلاصه کن</button><button>برایم ایده پیشنهاد بده</button></div></div></div>
+    <form id="ai-chat-form" class="ai-chat-composer"><textarea id="ai-chat-input" rows="1" maxlength="8000" placeholder="پیامت را اینجا بنویس..." aria-label="متن پیام"></textarea><button id="ai-chat-send" type="submit" aria-label="ارسال پیام">➤</button><small>پاسخ‌ها با هوش مصنوعی تولید می‌شوند؛ اطلاعات حساس ارسال نکنید.</small></form>
+  </section>
+
+  <!-- LinkBox public AI chat widget -->
+  <div id="lb-chat-widget" class="lb-chat-widget" dir="rtl">
+    <section id="lb-chat-panel" class="lb-chat-panel" aria-label="گفت‌وگوی هوشمند" aria-hidden="true">
+      <header class="lb-chat-head"><div class="lb-chat-brand"><span class="lb-chat-orb">✦</span><div><strong>دستیار هوشمند</strong><small>پشتیبانی‌شده با هوش مصنوعی</small></div></div><div class="lb-chat-head-actions"><button id="lb-chat-new" type="button" title="گفت‌وگوی جدید" aria-label="گفت‌وگوی جدید">＋</button><button id="lb-chat-close" type="button" title="بستن" aria-label="بستن چت">×</button></div></header>
+      <div id="lb-chat-messages" class="lb-chat-messages" aria-live="polite"><div class="lb-chat-welcome"><span class="lb-chat-welcome-icon">✧</span><h3>سلام! چطور می‌تونم کمک کنم؟</h3><p>هر سوالی داری بپرس؛ از ایده‌پردازی و نوشتن تا برنامه‌نویسی و تحلیل.</p><div class="lb-chat-suggestions"><button type="button">یک متن حرفه‌ای بنویس</button><button type="button">یک موضوع را خلاصه کن</button><button type="button">در کدنویسی کمکم کن</button></div></div></div>
+      <form id="lb-chat-form" class="lb-chat-composer"><textarea id="lb-chat-input" rows="1" maxlength="12000" placeholder="پیامت رو اینجا بنویس..." aria-label="پیام شما"></textarea><div class="lb-chat-compose-bottom"><span>پاسخ‌ها ممکن است نیاز به بررسی داشته باشند.</span><button id="lb-chat-send" type="submit" aria-label="ارسال پیام">↑</button></div></form>
+      <div id="lb-chat-status" class="lb-chat-status" role="status"></div>
+    </section>
+    <button id="lb-chat-toggle" class="lb-chat-toggle" type="button" aria-label="باز کردن چت هوشمند" aria-expanded="false"><span class="lb-chat-toggle-spark">✦</span><span>چت هوشمند</span></button>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
+  <script src="ai-chat.js"></script>
+  <script src="ai-chat.js"></script>
 </body>
 </html>
