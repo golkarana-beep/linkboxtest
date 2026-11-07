@@ -1,0 +1,17 @@
+name = "linkbox-file-worker"
+main = "index.js"
+compatibility_date = "2026-10-01"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "linkbox-files"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "linkbox-file-index"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[vars]
+SUPABASE_URL = "https://cegywlxspibaepeatyda.supabase.co"
+MAX_RECEIVE_BYTES = "5497558138880"
+# ADMIN_EMAILS را به صورت secret تنظیم کنید؛ چند ایمیل با کاما جدا شوند.

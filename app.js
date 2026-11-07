@@ -1117,6 +1117,8 @@ document.getElementById("import-file")?.addEventListener("change", (e) => {
 const menuToggle = document.getElementById("top-menu-toggle");
 const topMenu = document.getElementById("top-menu");
 const galleryPage = document.getElementById("gallery-page");
+const fileManagerPage = document.getElementById("file-manager-page");
+const filesNavBtn = document.getElementById("files-nav-btn");
 const linksPage = document.querySelector(".content");
 const categoriesBar = document.querySelector(".categories-bar-wrap");
 const galleryNavBtn = document.getElementById("gallery-nav-btn");
@@ -1165,16 +1167,31 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && topMenu && !topMenu.classList.contains("hidden")) { setTopMenuOpen(false); menuToggle?.focus(); }
 });
 function showGallery(show) {
+  fileManagerPage?.classList.add("hidden");
   galleryPage?.classList.toggle("hidden", !show);
   linksPage?.classList.toggle("hidden", show);
   categoriesBar?.classList.toggle("hidden", show);
   document.querySelector(".header-center")?.classList.toggle("hidden", show);
   if (galleryNavBtn) galleryNavBtn.innerHTML = show ? "<span>←</span> بازگشت به لینک‌ها" : "<span>▧</span> گالری عکس";
+  if (filesNavBtn) filesNavBtn.innerHTML = "<span>☁</span> مدیریت فایل";
   syncGalleryAdminControls();
   if (show && !galleryLoaded) loadGallery(galleryQuery);
   setTopMenuOpen(false);
 }
 galleryNavBtn?.addEventListener("click", () => showGallery(galleryPage.classList.contains("hidden")));
+function showFileManager(show) {
+  galleryPage?.classList.add("hidden");
+  fileManagerPage?.classList.toggle("hidden", !show);
+  linksPage?.classList.toggle("hidden", show);
+  categoriesBar?.classList.toggle("hidden", show);
+  document.querySelector(".header-center")?.classList.toggle("hidden", show);
+  if (galleryNavBtn) galleryNavBtn.innerHTML = "<span>▧</span> گالری عکس";
+  if (filesNavBtn) filesNavBtn.innerHTML = show ? "<span>←</span> بازگشت به لینک‌ها" : "<span>☁</span> مدیریت فایل";
+  setTopMenuOpen(false);
+  if (show) window.LinkBoxFileManager?.refresh();
+}
+filesNavBtn?.addEventListener("click", () => showFileManager(fileManagerPage.classList.contains("hidden")));
+
 async function compressGalleryPhoto(file) {
   if (!file.type.startsWith("image/")) throw new Error(`${file.name} فایل تصویری نیست`);
   const bitmap = await createImageBitmap(file);

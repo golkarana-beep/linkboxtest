@@ -1,10 +1,14 @@
-const CACHE_NAME = "linkbox-shell-v4";
+const CACHE_NAME = "linkbox-shell-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
   "./config.js",
+  "./file-manager.js",
+  "./file-manager.css",
+  "./receive.html",
+  "./receive.js",
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"
 ];
 self.addEventListener("install", (event) => {

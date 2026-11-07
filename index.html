@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>لینک‌باکس</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="file-manager.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -25,6 +26,7 @@
             <button id="add-category-btn" class="menu-action"><span>▤</span> دسته‌بندی جدید</button>
             <button id="sync-settings-btn" class="menu-action" title="ورود مدیر"><span>☁</span> همگام‌سازی</button>
             <button id="gallery-nav-btn" class="menu-action"><span>▧</span> گالری عکس</button>
+            <button id="files-nav-btn" class="menu-action"><span>☁</span> مدیریت فایل</button>
             <button id="analytics-nav-btn" class="menu-action hidden"><span>▥</span> آمار و مدیریت</button>
             <span id="sync-status" class="sync-status" title="وضعیت همگام‌سازی"></span>
           </nav>
@@ -97,6 +99,24 @@
         <p class="empty-title">نتیجه‌ای پیدا نشد</p>
         <p class="empty-desc">عبارت جستجو را تغییر دهید</p>
       </div>
+    </section>
+
+    <section id="file-manager-page" class="file-manager-page hidden" dir="rtl">
+      <div class="fm-hero">
+        <div><p class="fm-kicker">LINKBOX CLOUD DRIVE</p><h2>مدیریت فایل</h2><p>آرشیو شخصی، ارسال فایل حجیم و دریافت فایل از دیگران</p></div>
+        <div class="fm-cloud-icon">☁</div>
+      </div>
+      <div class="fm-notice" id="fm-notice">برای استفاده از آرشیو خصوصی، ابتدا با حساب مدیر وارد شوید. دریافت فایل از طریق لینک اشتراک‌گذاری نیز قابل فعال‌سازی است.</div>
+      <div class="fm-toolbar">
+        <label class="fm-upload-btn" for="fm-file-input">＋ بارگذاری فایل<input id="fm-file-input" type="file" multiple hidden></label>
+        <button id="fm-refresh" class="btn btn-secondary" type="button">⟳ تازه‌سازی</button>
+        <button id="fm-share-create" class="btn btn-secondary" type="button">↗ ساخت لینک دریافت</button>
+      </div>
+      <div class="fm-stats"><div><span>تعداد فایل‌ها</span><strong id="fm-count">—</strong></div><div><span>فضای مصرفی</span><strong id="fm-used">—</strong></div><div><span>فضای رایگان R2</span><strong>۱۰ گیگابایت / ماه</strong></div></div>
+      <div class="fm-progress-wrap"><div class="fm-progress-label"><span id="fm-progress-name">آماده</span><span id="fm-progress-percent">0%</span></div><div class="fm-progress"><i id="fm-progress-bar"></i></div></div>
+      <div class="fm-list-head"><h3>آرشیو فایل‌ها</h3><input id="fm-search" type="search" placeholder="جستجو در فایل‌ها..."></div>
+      <div id="fm-file-list" class="fm-file-list"><div class="fm-empty">برای نمایش فایل‌ها، وارد حساب مدیر شوید و نشانی Worker را در config.js تنظیم کنید.</div></div>
+      <div class="fm-footer-note">فایل‌های حجیم به قطعات کوچک تقسیم می‌شوند. لینک‌های اشتراک‌گذاری تاریخ انقضا دارند.</div>
     </section>
 
     <section id="gallery-page" class="gallery-page hidden">
@@ -265,30 +285,9 @@
     </div>
   </div>
 
-
-  <!-- LinkBox AI floating chat -->
-  <button id="ai-chat-launcher" class="ai-chat-launcher" aria-label="باز کردن دستیار هوشمند" title="دستیار هوشمند">✦<span>چت هوشمند</span></button>
-  <section id="ai-chat-panel" class="ai-chat-panel" aria-label="دستیار هوشمند LinkBox" aria-hidden="true">
-    <header class="ai-chat-header"><div class="ai-chat-brand"><span class="ai-chat-orb">✦</span><div><strong>دستیار هوشمند</strong><small><i></i> آماده گفتگو</small></div></div><div class="ai-chat-tools"><button id="ai-chat-new" title="گفتگوی جدید">＋</button><button id="ai-chat-close" title="بستن">×</button></div></header>
-    <div id="ai-chat-messages" class="ai-chat-messages" aria-live="polite"><div class="ai-chat-welcome"><div class="ai-chat-welcome-icon">✦</div><h3>سلام، چطور می‌تونم کمک کنم؟</h3><p>هر چیزی می‌خواهی بپرس؛ از ایده‌پردازی تا نوشتن و تحلیل.</p><div class="ai-chat-suggestions"><button>یک متن حرفه‌ای بنویس</button><button>یک موضوع را خلاصه کن</button><button>برایم ایده پیشنهاد بده</button></div></div></div>
-    <form id="ai-chat-form" class="ai-chat-composer"><textarea id="ai-chat-input" rows="1" maxlength="8000" placeholder="پیامت را اینجا بنویس..." aria-label="متن پیام"></textarea><button id="ai-chat-send" type="submit" aria-label="ارسال پیام">➤</button><small>پاسخ‌ها با هوش مصنوعی تولید می‌شوند؛ اطلاعات حساس ارسال نکنید.</small></form>
-  </section>
-
-  <!-- LinkBox public AI chat widget -->
-  <div id="lb-chat-widget" class="lb-chat-widget" dir="rtl">
-    <section id="lb-chat-panel" class="lb-chat-panel" aria-label="گفت‌وگوی هوشمند" aria-hidden="true">
-      <header class="lb-chat-head"><div class="lb-chat-brand"><span class="lb-chat-orb">✦</span><div><strong>دستیار هوشمند</strong><small>پشتیبانی‌شده با هوش مصنوعی</small></div></div><div class="lb-chat-head-actions"><button id="lb-chat-new" type="button" title="گفت‌وگوی جدید" aria-label="گفت‌وگوی جدید">＋</button><button id="lb-chat-close" type="button" title="بستن" aria-label="بستن چت">×</button></div></header>
-      <div id="lb-chat-messages" class="lb-chat-messages" aria-live="polite"><div class="lb-chat-welcome"><span class="lb-chat-welcome-icon">✧</span><h3>سلام! چطور می‌تونم کمک کنم؟</h3><p>هر سوالی داری بپرس؛ از ایده‌پردازی و نوشتن تا برنامه‌نویسی و تحلیل.</p><div class="lb-chat-suggestions"><button type="button">یک متن حرفه‌ای بنویس</button><button type="button">یک موضوع را خلاصه کن</button><button type="button">در کدنویسی کمکم کن</button></div></div></div>
-      <form id="lb-chat-form" class="lb-chat-composer"><textarea id="lb-chat-input" rows="1" maxlength="12000" placeholder="پیامت رو اینجا بنویس..." aria-label="پیام شما"></textarea><div class="lb-chat-compose-bottom"><span>پاسخ‌ها ممکن است نیاز به بررسی داشته باشند.</span><button id="lb-chat-send" type="submit" aria-label="ارسال پیام">↑</button></div></form>
-      <div id="lb-chat-status" class="lb-chat-status" role="status"></div>
-    </section>
-    <button id="lb-chat-toggle" class="lb-chat-toggle" type="button" aria-label="باز کردن چت هوشمند" aria-expanded="false"><span class="lb-chat-toggle-spark">✦</span><span>چت هوشمند</span></button>
-  </div>
-
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
-  <script src="ai-chat.js"></script>
-  <script src="ai-chat.js"></script>
+  <script src="file-manager.js"></script>
 </body>
 </html>
