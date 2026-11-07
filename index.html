@@ -103,20 +103,27 @@
 
     <section id="file-manager-page" class="file-manager-page hidden" dir="rtl">
       <div class="fm-hero">
-        <div><p class="fm-kicker">LINKBOX CLOUD DRIVE</p><h2>مدیریت فایل</h2><p>آرشیو شخصی، ارسال فایل حجیم و دریافت فایل از دیگران</p></div>
+        <div><p class="fm-kicker">LINKBOX FILE CENTER</p><h2>مدیریت فایل</h2><p>آرشیو شخصی Google Drive و ارسال و دریافت فایل‌های حجیم</p></div>
         <div class="fm-cloud-icon">☁</div>
       </div>
-      <div class="fm-notice" id="fm-notice">برای استفاده از آرشیو خصوصی، ابتدا با حساب مدیر وارد شوید. دریافت فایل از طریق لینک اشتراک‌گذاری نیز قابل فعال‌سازی است.</div>
+      <div class="fm-notice" id="fm-notice">برای شروع، Google Drive را متصل کن. اتصال اولیه فقط با حساب گوگل خودت انجام می‌شود.</div>
       <div class="fm-toolbar">
-        <label class="fm-upload-btn" for="fm-file-input">＋ بارگذاری فایل<input id="fm-file-input" type="file" multiple hidden></label>
+        <button id="fm-connect" class="btn btn-primary" type="button">اتصال به Google Drive</button>
+        <label class="fm-upload-btn" for="fm-file-input">＋ بارگذاری در آرشیو<input id="fm-file-input" type="file" multiple hidden></label>
         <button id="fm-refresh" class="btn btn-secondary" type="button">⟳ تازه‌سازی</button>
-        <button id="fm-share-create" class="btn btn-secondary" type="button">↗ ساخت لینک دریافت</button>
+        <button id="fm-open-drive" class="btn btn-secondary" type="button">باز کردن Google Drive ↗</button>
       </div>
-      <div class="fm-stats"><div><span>تعداد فایل‌ها</span><strong id="fm-count">—</strong></div><div><span>فضای مصرفی</span><strong id="fm-used">—</strong></div><div><span>فضای رایگان R2</span><strong>۱۰ گیگابایت / ماه</strong></div></div>
+      <div class="fm-stats"><div><span>تعداد فایل‌های آرشیو</span><strong id="fm-count">—</strong></div><div><span>حجم فایل‌های این پوشه</span><strong id="fm-used">—</strong></div><div><span>محل ذخیره‌سازی</span><strong>Google Drive</strong></div></div>
       <div class="fm-progress-wrap"><div class="fm-progress-label"><span id="fm-progress-name">آماده</span><span id="fm-progress-percent">0%</span></div><div class="fm-progress"><i id="fm-progress-bar"></i></div></div>
-      <div class="fm-list-head"><h3>آرشیو فایل‌ها</h3><input id="fm-search" type="search" placeholder="جستجو در فایل‌ها..."></div>
-      <div id="fm-file-list" class="fm-file-list"><div class="fm-empty">برای نمایش فایل‌ها، وارد حساب مدیر شوید و نشانی Worker را در config.js تنظیم کنید.</div></div>
-      <div class="fm-footer-note">فایل‌های حجیم به قطعات کوچک تقسیم می‌شوند. لینک‌های اشتراک‌گذاری تاریخ انقضا دارند.</div>
+      <div class="fm-list-head"><h3>آرشیو شخصی فایل‌ها</h3><input id="fm-search" type="search" placeholder="جستجو در فایل‌ها..."></div>
+      <div id="fm-file-list" class="fm-file-list"><div class="fm-empty">برای مشاهده آرشیو، Google Drive را متصل کن.</div></div>
+      <div class="fm-transfer-panel">
+        <div class="fm-transfer-heading"><div><p class="fm-kicker">LARGE FILE TRANSFER</p><h3>ارسال و دریافت فایل حجیم</h3><p>برای فایل‌های بزرگ از SwissTransfer استفاده کن؛ این سرویس انتقال موقت است و جای آرشیو دائمی را نمی‌گیرد.</p></div><div class="fm-swiss-mark">⇧</div></div>
+        <div class="fm-swiss-card"><div><strong>ارسال فایل با SwissTransfer</strong><small>انتقال رایگان فایل‌های حجیم تا سقف اعلام‌شده توسط سرویس، بدون نیاز به ساخت حساب برای گیرنده.</small></div><button id="fm-swiss-send" class="btn btn-primary" type="button">باز کردن SwissTransfer ↗</button></div>
+        <div class="fm-swiss-card"><div><strong>ثبت لینک دریافتی یا ارسالی</strong><small>پس از ساخت لینک در SwissTransfer، آن را اینجا ثبت کن تا در همین مرورگر نگهداری شود.</small></div><div class="fm-transfer-form"><input id="fm-transfer-label" type="text" placeholder="عنوان فایل یا توضیح"><input id="fm-transfer-url" type="url" placeholder="https://www.swisstransfer.com/..." dir="ltr"><button id="fm-save-transfer" class="btn btn-secondary" type="button">ذخیره لینک</button></div></div>
+        <div id="fm-transfer-history" class="fm-transfer-history"></div>
+      </div>
+      <div class="fm-footer-note">آرشیو Google Drive به حساب گوگل خودت وابسته است و از سهمیه فضای همان حساب استفاده می‌کند. لینک‌های SwissTransfer موقت‌اند؛ لینک‌های ثبت‌شده در این صفحه فقط در همین مرورگر ذخیره می‌شوند. برای فایل‌های محرمانه، لینک عمومی نساز.</div>
     </section>
 
     <section id="gallery-page" class="gallery-page hidden">
@@ -288,6 +295,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="file-manager.js"></script>
 </body>
 </html>
